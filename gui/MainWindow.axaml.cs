@@ -53,6 +53,16 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Version comes from the repo's VERSION file via the csproj;
+        // InformationalVersion may carry a "+commit" suffix - drop it.
+        var version = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion?.Split('+')[0];
+        if (!string.IsNullOrEmpty(version))
+            Title = $"PadBridge {version}";
+
         MappingList.ItemsSource = _rows;
 
         _monitor.KeyEvent += OnEvdevKey;

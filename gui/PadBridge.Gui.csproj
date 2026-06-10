@@ -7,6 +7,8 @@
     <RootNamespace>PadBridge.Gui</RootNamespace>
     <AssemblyName>padbridge-gui</AssemblyName>
     <AvaloniaNameGeneratorBehavior>InitializeComponent</AvaloniaNameGeneratorBehavior>
+    <!-- Single source of truth: the VERSION file at the repo root. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../VERSION').Trim())</Version>
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
