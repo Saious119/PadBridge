@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5568"/>
+      <stop offset="1" stop-color="#2d3748"/>
+    </linearGradient>
+    <linearGradient id="bridge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#63b3ed"/>
+      <stop offset="1" stop-color="#4299e1"/>
+    </linearGradient>
+  </defs>
+  <!-- gamepad body -->
+  <path fill="url(#body)" stroke="#1a202c" stroke-width="3"
+        d="M34 38 h60 c14 0 24 12 24 28 0 22 -8 34 -17 34 -8 0 -12 -10 -19 -14 h-36 c-7 4 -11 14 -19 14 -9 0 -17 -12 -17 -34 0 -16 10 -28 24 -28 z"/>
+  <!-- d-pad -->
+  <g fill="#cbd5e0">
+    <rect x="38" y="58" width="10" height="26" rx="3"/>
+    <rect x="30" y="66" width="26" height="10" rx="3"/>
+  </g>
+  <!-- buttons -->
+  <circle cx="88" cy="60" r="6" fill="#f6e05e"/>
+  <circle cx="98" cy="70" r="6" fill="#fc8181"/>
+  <circle cx="78" cy="70" r="6" fill="#68d391"/>
+  <circle cx="88" cy="80" r="6" fill="#63b3ed"/>
+  <!-- bridge arc: controller -> keyboard -->
+  <path fill="none" stroke="url(#bridge)" stroke-width="6" stroke-linecap="round"
+        d="M30 34 C 45 14, 83 14, 98 34"/>
+  <path fill="#63b3ed" d="M98 34 l10 -4 -6 10 z"/>
+</svg>

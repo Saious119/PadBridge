@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PadBridge
+Comment=Remap controller buttons to keyboard keys
+Exec=@INSTALL_DIR@/gui/padbridge-gui
+Icon=padbridge
+StartupWMClass=padbridge-gui
+Terminal=false
+Categories=Utility;Settings;
+Keywords=controller;gamepad;remap;joystick;

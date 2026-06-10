@@ -1,0 +1,10 @@
+[Unit]
+Description=PadBridge controller-to-keyboard bridge daemon
+
+[Service]
+ExecStart=%h/.local/bin/padbridge-daemon
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

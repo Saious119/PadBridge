@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PadBridge.Gui.NameConfigDialog"
+        Title="Name this config"
+        Icon="avares://padbridge-gui/Assets/padbridge.png"
+        Width="380" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner">
+  <StackPanel Margin="16" Spacing="10">
+    <TextBlock Text="Give this config a name:" />
+    <TextBox x:Name="NameBox" Watermark="e.g. FFXIV, Racing, Desktop" />
+    <TextBlock x:Name="ErrorText" Foreground="#F85149" TextWrapping="Wrap"
+               IsVisible="False" />
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True" />
+      <Button Content="Save" Click="OnOk" IsDefault="True" />
+    </StackPanel>
+  </StackPanel>
+</Window>

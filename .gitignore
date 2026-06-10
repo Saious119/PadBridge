@@ -1,0 +1,6 @@
+bin/
+obj/
+dist/
+daemon/padbridge-daemon
+.idea/
+TODO.md
