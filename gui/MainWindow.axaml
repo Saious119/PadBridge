@@ -81,6 +81,17 @@
       <TextBlock x:Name="BannerText" Foreground="White" TextWrapping="Wrap" />
     </Border>
 
+    <!-- Update available bar (persistent until acted on) -->
+    <Border x:Name="UpdateBar" DockPanel.Dock="Top" CornerRadius="6"
+            Padding="10,6" Margin="0,10,0,0" Background="#2D5C9E" IsVisible="False">
+      <DockPanel>
+        <Button x:Name="UpdateButton" DockPanel.Dock="Right" Content="Update now"
+                Margin="12,0,0,0" Click="OnUpdateClick" />
+        <TextBlock x:Name="UpdateText" Foreground="White" TextWrapping="Wrap"
+                   VerticalAlignment="Center" />
+      </DockPanel>
+    </Border>
+
     <!-- Bottom bar: hint + save -->
     <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
       <TextBlock x:Name="HintText" VerticalAlignment="Center"

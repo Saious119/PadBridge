@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # PadBridge installer: installs to ~/.local for the current user.
+# --update: non-interactive mode for the in-app updater; skips the
+#           permission setup (already in place on a working install)
+#           and restarts the services instead of prompting.
 set -euo pipefail
 cd "$(dirname "$0")"
+
+UPDATE_MODE=0
+[ "${1:-}" = "--update" ] && UPDATE_MODE=1
 
 BIN_DIR="$HOME/.local/bin"
 APP_DIR="$HOME/.local/share/padbridge"
@@ -48,7 +54,7 @@ for h in /sys/class/hidraw/hidraw*; do
        && [ ! -r "/dev/$(basename "$h")" ]; then NEED_SUDO=1; fi
 done
 
-if [ "$NEED_SUDO" = 1 ]; then
+if [ "$NEED_SUDO" = 1 ] && [ "$UPDATE_MODE" = 0 ]; then
     echo
     echo "PadBridge needs device permissions that require sudo:"
     echo "  - add $USER to the 'input' group (read controller events)"
@@ -76,12 +82,17 @@ EOF
     fi
 fi
 
-echo
-read -r -p "Enable and start the PadBridge background services now? [Y/n] " answer
-if [ "${answer:-Y}" != "${answer#[Yy]}" ] || [ -z "${answer:-}" ]; then
-    systemctl --user enable --now padbridge.service
-    # Paddle daemon for Flydigi controllers; idles harmlessly without one.
-    systemctl --user enable --now padbridge-flydigi.service
+if [ "$UPDATE_MODE" = 1 ]; then
+    systemctl --user enable padbridge.service padbridge-flydigi.service
+    systemctl --user restart padbridge.service padbridge-flydigi.service
+else
+    echo
+    read -r -p "Enable and start the PadBridge background services now? [Y/n] " answer
+    if [ "${answer:-Y}" != "${answer#[Yy]}" ] || [ -z "${answer:-}" ]; then
+        systemctl --user enable --now padbridge.service
+        # Paddle daemon for Flydigi controllers; idles harmlessly without one.
+        systemctl --user enable --now padbridge-flydigi.service
+    fi
 fi
 
 echo

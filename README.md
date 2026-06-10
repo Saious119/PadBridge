@@ -49,6 +49,10 @@ To remove it later, run `./uninstall.sh` from the same folder.
 3. Hit **Save config**. The running bridge picks up changes instantly.
 4. The ▶ / ■ buttons start and stop the background service; the dot
    shows whether it's running. The service starts automatically on login.
+5. The app checks GitHub for a new release when it starts (silently
+   skipped when offline). If one exists, a bar appears with an **Update
+   now** button: it downloads the release, verifies its checksum,
+   installs it, restarts the services, and offers to restart the app.
 
 **Exclusive mode** (checkbox in the toolbar): by default PadBridge adds
 remapped keys *alongside* your controller's normal input, which is

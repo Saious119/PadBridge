@@ -34,7 +34,9 @@ chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 echo "==> Creating tarball"
 tar -C dist -czf "dist/${NAME}.tar.gz" "$NAME"
 rm -rf "$STAGE"
+# Checksum asset: the in-app updater verifies the download against this.
+(cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 
 echo
-echo "Release ready: dist/${NAME}.tar.gz"
+echo "Release ready: dist/${NAME}.tar.gz (+ .sha256)"
 echo "Recipients run:  tar xf ${NAME}.tar.gz && cd ${NAME} && ./install.sh"
