@@ -50,18 +50,22 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _extraSources = new();
     private string _serviceState = "unknown";
 
+    private readonly string? _version;
+    private UpdateInfo? _update;
+    private bool _updateInstalled;
+
     public MainWindow()
     {
         InitializeComponent();
 
         // Version comes from the repo's VERSION file via the csproj;
         // InformationalVersion may carry a "+commit" suffix - drop it.
-        var version = System.Reflection.Assembly.GetExecutingAssembly()
+        _version = System.Reflection.Assembly.GetExecutingAssembly()
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
             .FirstOrDefault()?.InformationalVersion?.Split('+')[0];
-        if (!string.IsNullOrEmpty(version))
-            Title = $"PadBridge {version}";
+        if (!string.IsNullOrEmpty(_version))
+            Title = $"PadBridge {_version}";
 
         MappingList.ItemsSource = _rows;
 
@@ -93,8 +97,53 @@ public partial class MainWindow : Window
         _bannerTimer.Tick += (_, _) => { Banner.IsVisible = false; _bannerTimer.Stop(); };
         UpdateConfigTooltip();
         _ = RefreshServiceStatus();
+        _ = CheckForUpdatesAsync();
 
         Closing += (_, _) => _monitor.Dispose();
+    }
+
+    // ---- updates ----
+
+    private async Task CheckForUpdatesAsync()
+    {
+        if (_version == null) return;
+        try
+        {
+            _update = await Updater.CheckAsync(_version);
+        }
+        catch
+        {
+            return;   // offline or rate-limited; we'll check again next launch
+        }
+        if (_update == null) return;
+        UpdateText.Text = $"PadBridge {_update.Version} is available (you have {_version}).";
+        UpdateBar.IsVisible = true;
+    }
+
+    private async void OnUpdateClick(object? sender, RoutedEventArgs e)
+    {
+        if (_updateInstalled) { Updater.RestartApp(); return; }
+        if (_update == null) return;
+
+        UpdateButton.IsEnabled = false;
+        try
+        {
+            UpdateText.Text = $"Downloading PadBridge {_update.Version}...";
+            var tarball = await Updater.DownloadAsync(_update);
+            UpdateText.Text = "Installing...";
+            await Updater.InstallAsync(tarball);
+        }
+        catch (Exception ex)
+        {
+            UpdateBar.IsVisible = false;
+            UpdateButton.IsEnabled = true;
+            ShowBanner($"Update failed: {ex.Message}", success: false);
+            return;
+        }
+        _updateInstalled = true;
+        UpdateText.Text = $"Updated to {_update.Version} — restart the app to finish.";
+        UpdateButton.Content = "Restart";
+        UpdateButton.IsEnabled = true;
     }
 
     // ---- devices ----
