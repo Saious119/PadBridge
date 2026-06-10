@@ -11,6 +11,8 @@ public sealed class BridgeConfig
     public bool Grab { get; set; }
     /// <summary>source code -> output code</summary>
     public Dictionary<int, int> Mappings { get; } = new();
+    /// <summary>source code -> user nickname (GUI display only; the daemon ignores these)</summary>
+    public Dictionary<int, string> Labels { get; } = new();
 }
 
 public static class ConfigFile
@@ -61,6 +63,13 @@ public static class ConfigFile
                     EventCodes.NameToCode.TryGetValue(val, out var dst))
                     config.Mappings[src] = dst;
             }
+            else if (key.StartsWith("label ") || key.StartsWith("label\t"))
+            {
+                var srcName = key[6..].Trim();
+                if (val.Length > 0 &&
+                    EventCodes.NameToCode.TryGetValue(srcName, out var src))
+                    config.Labels[src] = val;
+            }
         }
         return config;
     }
@@ -77,6 +86,7 @@ public static class ConfigFile
             "#   device = <exact input device name>",
             "#   grab = true|false   (exclusive mode: remap buttons in place)",
             "#   map <source button> = <output key or button>",
+            "#   label <source button> = <nickname shown in the app>",
             "",
         };
         if (config.Name is { } name) lines.Insert(1, $"# config: {name}");
@@ -88,6 +98,10 @@ public static class ConfigFile
         });
         foreach (var (src, dst) in config.Mappings.OrderBy(kv => kv.Key))
             lines.Add($"map {EventCodes.CanonicalName(src)} = {EventCodes.CanonicalName(dst)}");
+
+        if (config.Labels.Count > 0) lines.Add("");
+        foreach (var (src, label) in config.Labels.OrderBy(kv => kv.Key))
+            lines.Add($"label {EventCodes.CanonicalName(src)} = {label}");
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         // Write then rename so the daemon's inotify reload never sees a half-written file.

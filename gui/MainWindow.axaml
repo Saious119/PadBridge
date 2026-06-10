@@ -69,7 +69,7 @@
                   VerticalAlignment="Center" ToolTip.ShowDelay="300">
           <ToolTip.Tip>
             <TextBlock MaxWidth="340" TextWrapping="Wrap"
-                       Text="Takes exclusive control of the controller and replaces it with a remapped copy. Required for button-to-button mappings to show up in games.&#10;&#10;While the bridge is running in this mode it owns the controller, so stop it (■) before remapping here. Rumble is not passed through." />
+                       Text="Takes exclusive control of the controller and replaces it with a remapped copy. Required for button-to-button mappings to show up in games. Rumble is passed through.&#10;&#10;While the bridge is running in this mode it owns the controller, so stop it (■) before remapping here." />
           </ToolTip.Tip>
         </CheckBox>
       </WrapPanel>
@@ -93,8 +93,14 @@
     <!-- Column headers + mapping list -->
     <Grid RowDefinitions="Auto,*" Margin="0,14,0,0">
       <Grid ColumnDefinitions="*,*,44" Margin="8,0,8,6">
-        <TextBlock Text="Controller input" FontWeight="Bold" />
-        <TextBlock Grid.Column="1" Text="Mapped to" FontWeight="Bold" Margin="6,0,0,0" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="Controller input" FontWeight="Bold" VerticalAlignment="Center" />
+          <Button x:Name="AddInputButton" Content="＋ Add input" FontSize="12"
+                  Padding="8,2" Click="OnAddInput"
+                  ToolTip.Tip="Listen for the next button press on the controller and add it to the list" />
+        </StackPanel>
+        <TextBlock Grid.Column="1" Text="Mapped to" FontWeight="Bold" Margin="6,0,0,0"
+                   VerticalAlignment="Center" />
       </Grid>
 
       <ScrollViewer Grid.Row="1">
@@ -103,9 +109,23 @@
             <DataTemplate>
               <Border Classes="row" Classes.highlighted="{Binding IsHighlighted}">
                 <Grid ColumnDefinitions="*,*,44">
-                  <TextBlock Text="{Binding SourceLabel}"
-                             TextTrimming="CharacterEllipsis"
-                             VerticalAlignment="Center" />
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding SourceLabel}"
+                               IsVisible="{Binding !IsEditingName}"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <TextBox Text="{Binding NameDraft, Mode=TwoWay}"
+                             IsVisible="{Binding IsEditingName}"
+                             Watermark="Nickname (empty to reset)"
+                             VerticalAlignment="Center" Margin="0,0,6,0"
+                             KeyDown="OnNicknameKeyDown"
+                             LostFocus="OnNicknameLostFocus" />
+                    <Button Grid.Column="1" Content="✎" FontSize="12"
+                            Margin="6,2" Opacity="0.6"
+                            IsVisible="{Binding !IsEditingName}"
+                            ToolTip.Tip="Give this input a nickname"
+                            Click="OnRenameClick" />
+                  </Grid>
                   <Button Grid.Column="1" Classes="target"
                           Classes.capturing="{Binding IsCapturing}"
                           Margin="6,2"

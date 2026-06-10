@@ -18,9 +18,10 @@ dotnet publish gui/PadBridge.Gui.csproj -c Release -r linux-x64 \
 echo "==> Staging ${STAGE}"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/gui" "$STAGE/share"
-cp daemon/padbridge-daemon "$STAGE/bin/"
+cp daemon/padbridge-daemon daemon/padbridge-flydigi "$STAGE/bin/"
 cp -r gui/bin/publish-sc/. "$STAGE/gui/"
-cp packaging/padbridge.desktop packaging/padbridge.svg packaging/padbridge.service "$STAGE/share/"
+cp packaging/padbridge.desktop packaging/padbridge.svg packaging/padbridge.service \
+   packaging/padbridge-flydigi.service "$STAGE/share/"
 if command -v ksvgtopng >/dev/null; then
     mkdir -p "$STAGE/share/icons"
     for s in 16 22 32 48 64 128 256; do

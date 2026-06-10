@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -14,6 +15,27 @@ public partial class MainWindow : Window
     private static bool IsPadBridgeDevice(string name) =>
         name.StartsWith("PadBridge Virtual") || name.EndsWith("(PadBridge)");
 
+    /// <summary>Default input names for devices PadBridge ships a companion
+    /// daemon for; user nicknames (config labels) override these.</summary>
+    private static Dictionary<string, Dictionary<int, string>>? _wellKnownLabels;
+    private static Dictionary<string, Dictionary<int, string>> WellKnownLabels =>
+        _wellKnownLabels ??= new()
+        {
+            ["Flydigi Vader 5 Pro Paddles"] = new()
+            {
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY1"]] = "C",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY2"]] = "Z",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY3"]] = "M1 (back paddle)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY4"]] = "M2 (back paddle)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY5"]] = "M3 (back paddle)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY6"]] = "M4 (back paddle)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY7"]] = "LM (extra bumper)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY8"]] = "RM (extra bumper)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY9"]] = "O (circle)",
+                [EventCodes.NameToCode["BTN_TRIGGER_HAPPY10"]] = "Home",
+            },
+        };
+
     private readonly ObservableCollection<MappingRow> _rows = new();
     private readonly ConfigStore _store = new();
     private readonly InputMonitor _monitor = new();
@@ -22,6 +44,10 @@ public partial class MainWindow : Window
     private List<InputDeviceInfo> _devices = new();
     private BridgeConfig _config = new();
     private MappingRow? _capturingRow;
+    private bool _addingInput;
+    /// <summary>Inputs added via "＋ Add input" this session; they persist in the
+    /// config only once mapped or nicknamed.</summary>
+    private readonly HashSet<int> _extraSources = new();
     private string _serviceState = "unknown";
 
     public MainWindow()
@@ -111,6 +137,7 @@ public partial class MainWindow : Window
     {
         if (ConfigCombo.SelectedItem is not string name || name == _config.Name) return;
         _config = _store.Load(name);
+        _extraSources.Clear();
         _store.Activate(_config);
         GrabCheck.IsChecked = _config.Grab;
         RefreshDevices(preferName: _config.Device);
@@ -122,6 +149,7 @@ public partial class MainWindow : Window
     private void OnNewConfig(object? sender, RoutedEventArgs e)
     {
         _config = new BridgeConfig { Device = SelectedDevice?.Name ?? "" };
+        _extraSources.Clear();
         ConfigCombo.SelectedItem = null;
         GrabCheck.IsChecked = false;
         RebuildRows();
@@ -138,7 +166,7 @@ public partial class MainWindow : Window
         _config.Grab = grab;
         MarkDirty();
         SetHint(grab
-                ? "Exclusive mode: the bridge takes over the controller and remaps buttons in place. Stop it (■) while remapping here, and note rumble is disabled."
+                ? "Exclusive mode: the bridge takes over the controller and remaps buttons in place. Stop it (■) while remapping here."
                 : "Exclusive mode off: button-to-button mappings won't be visible to games.",
             warning: true);
     }
@@ -156,20 +184,27 @@ public partial class MainWindow : Window
     private void RebuildRows()
     {
         CancelCapture();
+        StopAddInput();
         _rows.Clear();
 
         // Left column: every button the device reports, plus any configured
-        // sources the device doesn't currently advertise (e.g. unplugged).
-        var sources = new List<int>(SelectedDevice?.SupportedKeyCodes ?? Array.Empty<int>());
-        foreach (var src in _config.Mappings.Keys)
-            if (!sources.Contains(src))
-                sources.Add(src);
+        // or nicknamed sources the device doesn't currently advertise
+        // (e.g. unplugged), plus inputs added by hand this session.
+        var sources = new HashSet<int>(SelectedDevice?.SupportedKeyCodes ?? Array.Empty<int>());
+        sources.UnionWith(_config.Mappings.Keys);
+        sources.UnionWith(_config.Labels.Keys);
+        sources.UnionWith(_extraSources);
 
+        WellKnownLabels.TryGetValue(SelectedDevice?.Name ?? "", out var known);
         foreach (var src in sources.OrderBy(c => c))
         {
             var row = new MappingRow(src);
             if (_config.Mappings.TryGetValue(src, out var dst))
                 row.TargetCode = dst;
+            if (_config.Labels.TryGetValue(src, out var label))
+                row.Nickname = label;
+            else if (known != null && known.TryGetValue(src, out var name))
+                row.Nickname = name;
             _rows.Add(row);
         }
     }
@@ -210,6 +245,39 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_addingInput && key.Value == 1)
+        {
+            if (key.Code is >= 0x110 and <= 0x117) return;   // mouse buttons
+            if (key.Code == EventCodes.NameToCode["KEY_ESC"])
+            {
+                CancelAddInput();
+                return;
+            }
+            if (key.DevicePath != SelectedDevice?.Path)
+            {
+                // Tell the user where the input actually lives: extra buttons
+                // often arrive via a sibling device (e.g. a second HID
+                // interface), which the bridge can't read from this config.
+                SetHint($"That came from '{key.DeviceName}', not '{SelectedDevice?.Name}'. " +
+                        "Still listening — press a button on the selected controller, or Esc to cancel.",
+                    warning: true);
+                return;
+            }
+            StopAddInput();
+            if (_rows.FirstOrDefault(r => r.SourceCode == key.Code) is { } existing)
+            {
+                SetHint($"{EventCodes.FriendlyName(key.Code)} ({EventCodes.CanonicalName(key.Code)}) is already in the list.");
+            }
+            else
+            {
+                _extraSources.Add(key.Code);
+                var added = new MappingRow(key.Code);
+                _rows.Insert(_rows.TakeWhile(r => r.SourceCode < key.Code).Count(), added);
+                SetHint($"Added {EventCodes.CanonicalName(key.Code)} — click \"(not mapped)\" to bind it, or ✎ to nickname it.");
+            }
+            // Fall through so the row lights up like any other press.
+        }
+
         // Not capturing: light up the matching row so the user can find
         // which physical button is which.
         if (key.DevicePath != SelectedDevice?.Path) return;
@@ -246,6 +314,87 @@ public partial class MainWindow : Window
         if (_capturingRow is { } row) row.IsCapturing = false;
         _capturingRow = null;
         SetHint("Press buttons on your controller to find them in the list.");
+    }
+
+    // ---- adding inputs ----
+
+    private void OnAddInput(object? sender, RoutedEventArgs e)
+    {
+        if (_addingInput)
+        {
+            CancelAddInput();
+            return;
+        }
+        CancelCapture();
+        _addingInput = true;
+        AddInputButton.Content = "Listening… (Esc)";
+        SetHint($"Press the input on '{SelectedDevice?.Name}' you want to add to the list. Esc cancels.");
+    }
+
+    private void StopAddInput()
+    {
+        _addingInput = false;
+        AddInputButton.Content = "＋ Add input";
+    }
+
+    private void CancelAddInput()
+    {
+        StopAddInput();
+        SetHint("Press buttons on your controller to find them in the list.");
+    }
+
+    // ---- nicknames ----
+
+    private void OnRenameClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.DataContext is not MappingRow row) return;
+        foreach (var r in _rows)
+            if (r != row && r.IsEditingName)
+                r.IsEditingName = false;
+        row.NameDraft = row.Nickname ?? "";
+        row.IsEditingName = true;
+
+        var box = ((sender as Button)?.Parent as Grid)?.Children.OfType<TextBox>().FirstOrDefault();
+        Dispatcher.UIThread.Post(() => { box?.Focus(); box?.SelectAll(); });
+    }
+
+    private void OnNicknameKeyDown(object? sender, KeyEventArgs e)
+    {
+        if ((sender as TextBox)?.DataContext is not MappingRow row) return;
+        if (e.Key == Key.Enter)
+        {
+            CommitNickname(row);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            row.IsEditingName = false;   // discard the draft
+            e.Handled = true;
+        }
+    }
+
+    private void OnNicknameLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as TextBox)?.DataContext is MappingRow { IsEditingName: true } row)
+            CommitNickname(row);
+    }
+
+    private void CommitNickname(MappingRow row)
+    {
+        row.IsEditingName = false;
+        var name = row.NameDraft.Trim();
+        var nickname = name.Length == 0 ? null : name;
+        if (nickname == row.Nickname) return;
+
+        row.Nickname = nickname;
+        if (nickname == null) _config.Labels.Remove(row.SourceCode);
+        else _config.Labels[row.SourceCode] = nickname;
+        // Keep the row around even if the device doesn't advertise this code.
+        _extraSources.Add(row.SourceCode);
+        MarkDirty();
+        SetHint(nickname == null
+            ? $"Nickname removed from {EventCodes.CanonicalName(row.SourceCode)}."
+            : $"{EventCodes.CanonicalName(row.SourceCode)} will now show as \"{nickname}\".");
     }
 
     // ---- config ----

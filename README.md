@@ -42,6 +42,10 @@ To remove it later, run `./uninstall.sh` from the same folder.
    matching rows light up so you can tell which physical button is which.
 2. Click a "Mapped to" entry, then press the key or button you want it
    to become. Esc cancels a capture, ✕ clears a mapping.
+   - If a button isn't in the list, click **＋ Add input** and press it:
+     the input is added as a new row (and the hint tells you if the
+     press actually arrived from a different device). The ✎ button on a
+     row gives the input a nickname, e.g. "Back Paddle 1".
 3. Hit **Save config**. The running bridge picks up changes instantly.
 4. The ▶ / ■ buttons start and stop the background service; the dot
    shows whether it's running. The service starts automatically on login.
@@ -50,11 +54,13 @@ To remove it later, run `./uninstall.sh` from the same folder.
 remapped keys *alongside* your controller's normal input, which is
 perfect for extra buttons → keyboard keys. If you want button-to-button
 remaps (A acts as B), enable exclusive mode — the bridge takes the
-controller over and replaces it with a remapped copy. Two trade-offs:
-rumble is not passed through, and while the bridge is running it owns
-the controller, so stop it (■) while rebinding in the app. If the bridge
-can't take the controller (journal says "grab ... failed"), another
-remapper has it — usually Steam Input.
+controller over and replaces it with a remapped copy. Rumble is passed
+through to the real controller. One trade-off: in this mode a running
+bridge has exclusive access to the controller, which prevents the
+PadBridge app from seeing your button presses — so stop the service (■)
+before rebinding buttons, and start it again (▶) when you're done. If
+the bridge can't take the controller (journal says "grab ... failed"),
+another remapper has it — usually Steam Input.
 
 ## Config files
 
@@ -76,10 +82,13 @@ grab = false
 
 map BTN_TRIGGER_HAPPY1 = KEY_I
 map BTN_TRIGGER_HAPPY2 = KEY_O
+
+label BTN_TRIGGER_HAPPY1 = Back Paddle 1
 ```
 
-Names are the kernel's evdev names. Lines starting with `#` are
-comments. The GUI is optional — the daemon only cares about
+Names are the kernel's evdev names. `label` lines are display nicknames
+shown by the app (set them with a row's ✎ button); the daemon ignores
+them. Lines starting with `#` are comments. The GUI is optional — the daemon only cares about
 `padbridge.conf`.
 
 ## Building from source
@@ -104,6 +113,15 @@ To build a redistributable tarball like the released ones:
   through a capability-identical clone (`<name> (PadBridge)`) with
   mapped buttons rewritten in transit. Watches the config with inotify
   and hot-reloads on change.
+- **`daemon/padbridge-flydigi.c`** — companion daemon for the Flydigi
+  Vader 5 Pro. Its extra buttons (C, Z, back paddles M1–M4, extra
+  bumpers LM/RM, O, Home) never reach the kernel's xpad driver; this
+  daemon asks the controller to stream them over its vendor HID
+  interface (no Flydigi software needed) and re-emits them as a normal
+  evdev device, "Flydigi Vader 5 Pro Paddles" (BTN_TRIGGER_HAPPY1–10).
+  Pick that device in the app to map the paddles. Hotplug-aware; the
+  controller's regular input is untouched. Protocol per the
+  [flydigi-vader5](https://github.com/BANANASJIM/flydigi-vader5) project.
 - **`gui/`** — Avalonia (.NET) desktop app. Talks to evdev directly
   (works on Wayland, no compositor involvement) and controls the
   systemd user service.

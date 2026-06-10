@@ -1,0 +1,10 @@
+[Unit]
+Description=PadBridge Flydigi Vader 5 Pro paddle daemon
+
+[Service]
+ExecStart=%h/.local/bin/padbridge-flydigi
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

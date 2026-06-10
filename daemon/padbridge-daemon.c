@@ -18,14 +18,16 @@
  *     through a clone device "<name> (PadBridge)" with the same
  *     identity, axes and buttons; mapped buttons are rewritten in
  *     transit (keyboard targets go to the virtual keyboard instead).
- *     This makes button-to-button remaps real, at the cost of
- *     force-feedback passthrough.
+ *     This makes button-to-button remaps real. Rumble keeps working:
+ *     force-feedback effects games upload to the clone are replayed
+ *     onto the real device.
  *
  * Config: ~/.config/padbridge/padbridge.conf (or argv[1]), format:
  *
  *   device = Vader 5 Pro Virtual Gamepad
  *   grab = false
  *   map BTN_TRIGGER_HAPPY1 = KEY_I
+ *   label BTN_TRIGGER_HAPPY1 = Back Paddle 1   (GUI display name; ignored here)
  *
  * The config is watched with inotify and reloaded automatically.
  *
@@ -66,6 +68,13 @@ static int grab_mode = 0;
 
 static int kbd_fd = -1;   /* virtual keyboard for KEY_* targets        */
 static int pad_fd = -1;   /* clone of the source device (grab mode)    */
+
+/* Force-feedback passthrough (grab mode): games upload rumble effects to
+ * the clone; we replay them onto the real device, which keeps doing the
+ * actual rumbling through its own driver. */
+#define FF_MAP_MAX 64
+static int ff_map[FF_MAP_MAX]; /* clone effect id -> source effect id */
+static int ff_active = 0;      /* clone advertises force feedback     */
 
 static void on_signal(int s) { (void)s; running = 0; }
 
@@ -139,6 +148,8 @@ static int load_config(void) {
                 if (mappings[i].src == src) { mappings[i].dst = dst; found = 1; break; }
             if (!found && n_mappings < MAX_MAPPINGS)
                 mappings[n_mappings++] = (struct mapping){ src, dst };
+        } else if (strncmp(key, "label ", 6) == 0 || strncmp(key, "label\t", 6) == 0) {
+            /* GUI-only input nicknames; nothing for the daemon to do. */
         } else {
             fprintf(stderr, "config line %d: unknown key '%s'\n", lineno, key);
         }
@@ -209,7 +220,8 @@ static int bit_set(const unsigned char *bits, int code) {
 static int create_pad_clone(int src) {
     destroy_dev(&pad_fd);
 
-    pad_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    /* O_RDWR: force-feedback uploads from games arrive as reads on this fd. */
+    pad_fd = open("/dev/uinput", O_RDWR | O_NONBLOCK);
     if (pad_fd < 0) { perror("open /dev/uinput"); return -1; }
 
     unsigned char evb[(EV_MAX + 7) / 8] = {0};
@@ -258,9 +270,27 @@ static int create_pad_clone(int src) {
                 ioctl(pad_fd, UI_SET_MSCBIT, c);
     }
 
+    /* Force feedback: advertise the source's rumble capabilities; effect
+     * uploads are proxied back to it in handle_clone_event. */
+    ff_active = 0;
+    int n_effects = 0;
+    if (bit_set(evb, EV_FF) &&
+        ioctl(src, EVIOCGEFFECTS, &n_effects) == 0 && n_effects > 0) {
+        ioctl(pad_fd, UI_SET_EVBIT, EV_FF);
+        unsigned char ffb[(FF_MAX + 7) / 8] = {0};
+        ioctl(src, EVIOCGBIT(EV_FF, sizeof(ffb)), ffb);
+        for (int c = 0; c <= FF_MAX; c++)
+            if (bit_set(ffb, c))
+                ioctl(pad_fd, UI_SET_FFBIT, c);
+        if (n_effects > FF_MAP_MAX) n_effects = FF_MAP_MAX;
+        ff_active = 1;
+    }
+    for (int i = 0; i < FF_MAP_MAX; i++) ff_map[i] = -1;
+
     /* Same bus/vendor/product/version => SDL & friends apply the same
      * controller profile to the clone as to the original. */
     struct uinput_setup us = {0};
+    us.ff_effects_max = n_effects;
     ioctl(src, EVIOCGID, &us.id);
     snprintf(us.name, sizeof(us.name), "%.*s (PadBridge)",
              (int)(sizeof(us.name) - sizeof(" (PadBridge)")), device_name);
@@ -271,7 +301,8 @@ static int create_pad_clone(int src) {
         pad_fd = -1;
         return -1;
     }
-    printf("created clone '%s'\n", us.name);
+    printf("created clone '%s'%s\n", us.name,
+           ff_active ? " (rumble passthrough)" : "");
     fflush(stdout);
     return 0;
 }
@@ -281,7 +312,10 @@ static int open_source(void) {
     char path[64], name[256];
     for (int i = 0; i < 512; i++) {
         snprintf(path, sizeof(path), "/dev/input/event%d", i);
-        int fd = open(path, O_RDONLY);
+        /* O_RDWR so rumble effects can be uploaded back to the device;
+         * fall back to read-only (no rumble) if write access is denied. */
+        int fd = open(path, O_RDWR);
+        if (fd < 0) fd = open(path, O_RDONLY);
         if (fd < 0) continue;
         name[0] = 0;
         ioctl(fd, EVIOCGNAME(sizeof(name)), name);
@@ -336,6 +370,51 @@ static void handle_event(const struct input_event *ev) {
     }
 }
 
+/* Rumble passthrough: the game talks force feedback to the clone. Effect
+ * uploads/erases arrive as EV_UINPUT requests that must be acknowledged
+ * with the BEGIN/END ioctl pairs; play/stop/gain arrive as plain EV_FF
+ * events. Both are replayed onto the real device with the effect id
+ * translated through ff_map. */
+static void handle_clone_event(int src, const struct input_event *ev) {
+    if (ev->type == EV_UINPUT && ev->code == UI_FF_UPLOAD) {
+        struct uinput_ff_upload up = {0};
+        up.request_id = ev->value;
+        if (ioctl(pad_fd, UI_BEGIN_FF_UPLOAD, &up) < 0) return;
+
+        struct ff_effect eff = up.effect;
+        int clone_id = up.effect.id;
+        /* -1 asks the device to allocate; reuse the mapping on updates. */
+        eff.id = (clone_id >= 0 && clone_id < FF_MAP_MAX) ? ff_map[clone_id] : -1;
+        if (ioctl(src, EVIOCSFF, &eff) == 0) {
+            if (clone_id >= 0 && clone_id < FF_MAP_MAX)
+                ff_map[clone_id] = eff.id;
+            up.retval = 0;
+        } else {
+            up.retval = -errno;
+        }
+        ioctl(pad_fd, UI_END_FF_UPLOAD, &up);
+    } else if (ev->type == EV_UINPUT && ev->code == UI_FF_ERASE) {
+        struct uinput_ff_erase er = {0};
+        er.request_id = ev->value;
+        if (ioctl(pad_fd, UI_BEGIN_FF_ERASE, &er) < 0) return;
+
+        int clone_id = (int)er.effect_id;
+        if (clone_id >= 0 && clone_id < FF_MAP_MAX && ff_map[clone_id] >= 0) {
+            ioctl(src, EVIOCRMFF, ff_map[clone_id]);
+            ff_map[clone_id] = -1;
+        }
+        er.retval = 0;
+        ioctl(pad_fd, UI_END_FF_ERASE, &er);
+    } else if (ev->type == EV_FF) {
+        struct input_event out = *ev;
+        if (ev->code < FF_MAP_MAX) {       /* play/stop a specific effect */
+            if (ff_map[ev->code] < 0) return;
+            out.code = ff_map[ev->code];
+        }                                  /* FF_GAIN etc. pass unchanged */
+        if (write(src, &out, sizeof(out)) != sizeof(out)) { /* no rumble */ }
+    }
+}
+
 int main(int argc, char **argv) {
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
@@ -387,11 +466,13 @@ int main(int argc, char **argv) {
             }
         }
 
-        struct pollfd pfds[2];
+        struct pollfd pfds[3];
         int n = 0;
-        int src_idx = -1, ino_idx = -1;
+        int src_idx = -1, ino_idx = -1, pad_idx = -1;
         if (src >= 0)    { pfds[n].fd = src;    pfds[n].events = POLLIN; src_idx = n++; }
         if (ino_fd >= 0) { pfds[n].fd = ino_fd; pfds[n].events = POLLIN; ino_idx = n++; }
+        if (src >= 0 && pad_fd >= 0 && ff_active)
+                         { pfds[n].fd = pad_fd; pfds[n].events = POLLIN; pad_idx = n++; }
 
         int r = poll(pfds, n, 1000);
         if (r < 0) {
@@ -433,6 +514,12 @@ int main(int argc, char **argv) {
                 continue;
             }
             handle_event(&ev);
+        }
+
+        if (pad_idx >= 0 && (pfds[pad_idx].revents & POLLIN) && src >= 0) {
+            struct input_event ev;
+            while (pad_fd >= 0 && read(pad_fd, &ev, sizeof(ev)) == sizeof(ev))
+                handle_clone_event(src, &ev);
         }
     }
 
